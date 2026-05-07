@@ -161,13 +161,23 @@ export default function WeddingCountdown() {
     days: 0, hours: 0, minutes: 0, seconds: 0, arrived: false,
   });
 
-  // Hydrate from localStorage
+  // On mount: show localStorage instantly, then sync the real date from the server
   useEffect(() => {
-    const saved = localStorage.getItem("weddingDate");
-    const date = saved ?? defaultTargetDate();
-    setTargetDate(date);
-    setDaysInput(String(daysFromNow(date)));
-    setTimeLeft(calcTimeLeft(date));
+    const cached = localStorage.getItem("weddingDate") ?? defaultTargetDate();
+    setTargetDate(cached);
+    setDaysInput(String(daysFromNow(cached)));
+    setTimeLeft(calcTimeLeft(cached));
+
+    fetch("/api/date")
+      .then((r) => r.json())
+      .then(({ date }: { date: string | null }) => {
+        const resolved = date ?? defaultTargetDate();
+        localStorage.setItem("weddingDate", resolved);
+        setTargetDate(resolved);
+        setDaysInput(String(daysFromNow(resolved)));
+        setTimeLeft(calcTimeLeft(resolved));
+      })
+      .catch(() => {/* keep cached value on network error */});
   }, []);
 
   // Tick every second
@@ -178,10 +188,17 @@ export default function WeddingCountdown() {
   }, [targetDate]);
 
   function applyDate(val: string) {
+    // Optimistic update
     setTargetDate(val);
     setDaysInput(String(daysFromNow(val)));
     localStorage.setItem("weddingDate", val);
     setTimeLeft(calcTimeLeft(val));
+    // Persist to server so all visitors see the change
+    fetch("/api/date", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: val }),
+    }).catch(() => {/* fail silently; local state already updated */});
   }
 
   function handleDaysChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -189,10 +206,7 @@ export default function WeddingCountdown() {
     setDaysInput(raw);
     const n = parseInt(raw, 10);
     if (!isNaN(n) && n >= 0) {
-      const date = dateFromDays(n);
-      setTargetDate(date);
-      localStorage.setItem("weddingDate", date);
-      setTimeLeft(calcTimeLeft(date));
+      applyDate(dateFromDays(n));
     }
   }
 
